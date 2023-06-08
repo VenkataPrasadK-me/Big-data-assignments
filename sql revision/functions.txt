@@ -1,0 +1,38 @@
+select ascii('A');
+select char_length('Venkat');
+select character_length('Venkat');
+select concat('Venkata ','Prasad ','K');
+-- concat with seperator
+select concat_ws(',','Venkat','25','SQL');
+-- 
+SELECT FORMAT(25055476542400.5634,0,'USD'); -- prints number in 3 groups
+select round(250500.5634, 0);
+SELECT INSERT("W3Schools.com", 1, 9, "Example");
+SELECT INSTR("W3Schools.com", "sch");
+select lcase('VENKAT');
+select lower('VENKAT');
+select left('Venkat',3);
+select right('Venkat',3);
+select length('Venkat');
+SELECT MID("Venkata Prasad K", 9, 13);
+SELECT REPLACE("Hello World", "Hello", "Hi");
+SELECT REVERSE("rev train");
+select strcmp('venkat','venkat');
+select strcmp('venkat','venkat1');
+select strcmp('venkat1','venkat');
+select substr('VenkataPrasadK',-7);
+select substring('Venkata Prasad K',-8);
+-- NUMERIC FUNCTIONS
+select abs(-5);
+select mod(5,2);
+-- Date
+SELECT ADDDATE("2017-06-15", INTERVAL 1 DAY);
+SELECT ADDDATE("2017-06-15", INTERVAL 1 month);
+SELECT ADDDATE("2017-06-15", INTERVAL 10 year);
+SELECT DATEDIFF("2017-07-30", "2017-06-15");
+SELECT DATE_ADD("2017-06-15", INTERVAL 10 DAY);
+SELECT DATE_FORMAT("2017-06-15", "%W %M %e %Y");
+SELECT ADDDATE("2017-06-15", INTERVAL -1 DAY);
+SELECT date_sub("2017-06-15", INTERVAL 1 DAY);
+SELECT FROM_DAYS(739000);
+select to_days('2023-06-08');
