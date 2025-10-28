@@ -29,6 +29,8 @@ jobs:
 
     - name: Generate AI Suggestions
       run: python generate_suggestions.py
+      env:
+        PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
 
     - name: Post PR Suggestion Comment
       uses: marocchino/sticky-pull-request-comment@v2
