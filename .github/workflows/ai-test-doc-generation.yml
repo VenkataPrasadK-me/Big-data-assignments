@@ -1,0 +1,13 @@
+name: AI Test and Doc Suggestions
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  suggest-tests-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0

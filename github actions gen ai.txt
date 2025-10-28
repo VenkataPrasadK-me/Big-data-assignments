@@ -1,0 +1,349 @@
+AI Test & Doc Generation (PR-time)
+Goal
+When someone opens/updates a PR:
+Generate suggested unit tests (BE + FE) and API doc snippets from the diff
+
+
+Post them as a PR comment for review
+
+
+Enforce coverage gates (Codecov) before merge
+
+
+Architecture
+Trigger: pull_request on GitHub
+
+
+Inputs to the LLM: git diff, file paths, existing tests, coverage report, OpenAPI (if relevant)
+
+
+Outputs:
+
+
+Python tests (Pytest/DRF) targeting changed code
+
+
+React/TS tests (Vitest/RTL) for changed components/hooks
+
+
+Doc updates (Markdown/ADR notes; OpenAPI description fixes)
+
+
+Posting: GitHub Action bot comment
+
+
+Gates: Codecov/coverage threshold + CI passing
+
+
+Minimal GitHub Actions workflow
+# .github/workflows/ai-test-doc.yml
+name: AI test & doc suggestions
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+jobs:
+  suggest-tests-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Get PR diff
+        run: |
+          git fetch origin ${{ github.base_ref }} --depth=1
+          git diff --unified=0 origin/${{ github.base_ref }}...HEAD > /tmp/pr.diff
+      - name: Install deps (server & web)
+        run: |
+          pip install -r backend/requirements.txt
+          npm ci --prefix web
+      - name: Generate current coverage (optional quick scan)
+        run: |
+          pytest --maxfail=1 --disable-warnings -q --cov=backend --cov-report=xml
+          npm test --prefix web -- --coverage --watchAll=false || true
+      - name: Build OpenAPI (DRF)
+        run: |
+          python manage.py spectacular --file openapi.yaml
+      - name: Call LLM to draft tests & docs
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          python .github/scripts/generate_suggestions.py \
+            --diff /tmp/pr.diff \
+            --openapi openapi.yaml \
+            --out /tmp/suggestions.md
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/suggestions.md
+
+The generate_suggestions.py (behavior)
+Parse diff; group by language:
+
+
+Python: if views.py/serializers.py/services/*.py changed → propose Pytest unit tests (and DRF API tests using APIClient)
+
+
+React/TS: if components/* or hooks/* changed → propose Vitest + React Testing Library specs
+
+
+Pull function/class signatures and existing tests to avoid duplicates
+
+
+Load openapi.yaml to improve API test scaffolds (URLs, status codes, example payloads)
+
+
+Emit ready-to-paste files with proper paths (e.g., backend/tests/test_<module>_<slug>.py, web/src/__tests__/<file>.test.tsx)
+
+
+Emit doc suggestions:
+
+
+OpenAPI descriptions (operation summaries, parameter descriptions)
+
+
+Changelog snippet
+
+
+ADR note if architectural implications detected
+
+
+Prompt skeleton (server)
+You are a senior SWE. Given this git diff and the project context, produce minimal but high-value Pytest tests. Prefer unit tests over large integration tests. If API endpoints touched, include DRF API tests using APIClient. Cover edge cases mentioned or implied by the code. Return only file paths and test code blocks ready to add.
+Coverage gates (Codecov)
+# .github/workflows/coverage.yml
+name: Coverage & Gate
+on:
+  pull_request:
+permissions:
+  contents: read
+  checks: write
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -r backend/requirements.txt
+      - run: pytest --cov=backend --cov-report=xml
+      - uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: true
+          verbose: true
+      - name: Enforce threshold
+        run: |
+          python .github/scripts/check_coverage.py --min 75
+
+Optionally set Codecov YAML to block merge under 75–80% or require "no coverage drop > 1%".
+
+
+Guardrails
+Secrets: Use org secrets (LLM_API_KEY) and a GitHub App token scoped to comments.
+
+
+Privacy: Strip PII from prompts; truncate oversized diffs; never send full DB dumps.
+
+
+Idempotence: Use a sticky PR comment updated on each push (no spam).
+
+
+
+API Contract → Client SDKs (keep FE/BE in sync)
+Goal
+Every time the API changes, regenerate typed client SDKs (TypeScript) from OpenAPI and publish to your private npm (or consume via monorepo packages). FE imports functions instead of hand-written fetch calls.
+Architecture
+Source of truth: OpenAPI spec from DRF (e.g., drf-spectacular)
+
+
+Generator: One of:
+
+
+openapi-typescript + lightweight fetch wrapper
+
+
+orval (generates hooks for React Query, axios/fetch clients)
+
+
+OpenAPI Generator (typescript-fetch, typescript-axios)
+
+
+Publish:
+
+
+Private npm registry (GitHub Packages) or
+
+
+Local monorepo package (/packages/sdk) versioned by semantic-release
+
+
+Trigger: On main merges or when openapi.yaml changes
+
+
+DRF Spectacular setup
+# settings.py
+INSTALLED_APPS += ["drf_spectacular"]
+
+REST_FRAMEWORK = {
+  "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+  "TITLE": "Your API",
+  "VERSION": "v1",
+  "SERVE_INCLUDE_SCHEMA": False,
+  "POSTPROCESSING_HOOKS": [
+      "drf_spectacular.hooks.postprocess_schema_enums"
+  ],
+}
+# urls.py
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView
+urlpatterns += [
+  path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+  path("api/docs/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+]
+
+CI step to export:
+python manage.py spectacular --file openapi.yaml
+
+SDK generation with Orval (recommended for React)
+Pros: Generates React Query hooks, typings, clients, and mock handlers (MSW) if you want.
+orval.config.ts
+
+
+export default {
+  api: {
+    input: './openapi.yaml',
+    output: {
+      target: './packages/sdk/src/generated.ts',
+      client: 'fetch',               // or 'axios'
+      override: { mutator: { path: './packages/sdk/src/fetcher.ts' } },
+      schemas: './packages/sdk/src/models',
+      prettier: true,
+    },
+    hooks: { afterAllFilesWrite: 'pnpm run sdk:lint' }
+  }
+}
+
+Minimal fetcher:
+
+
+// packages/sdk/src/fetcher.ts
+export const customFetch = async <T>(url: string, config: RequestInit = {}) => {
+  const res = await fetch(url, { ...config, credentials: 'include' });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return (await res.json()) as T;
+};
+
+GitHub Action to build & publish SDK
+# .github/workflows/sdk.yml
+name: Build & publish SDK
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'openapi.yaml'
+      - 'backend/**'
+      - 'packages/sdk/**'
+permissions:
+  contents: read
+  packages: write
+jobs:
+  generate-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@yourorg'
+      - name: Install
+        run: |
+          pip install -r backend/requirements.txt
+          npm ci
+      - name: Export OpenAPI
+        run: python manage.py spectacular --file openapi.yaml
+      - name: Generate SDK (Orval)
+        run: npx orval --config orval.config.ts
+      - name: Build package
+        run: |
+          cd packages/sdk
+          npm version patch --no-git-tag-version
+          npm publish --access restricted
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+If you want semantic versioning, replace the npm version patch step with semantic-release (conventional commits + auto bump + tags + changelog).
+How FE consumes it
+// web/src/api/client.ts
+import { getUsersUsersGet } from '@yourorg/sdk'; // Orval generated
+export const fetchUsers = () => getUsersUsersGet();
+
+Optionally generate React Query hooks directly:
+
+
+useGetUsers() etc., with typing and caching baked in.
+
+
+Linting & drift checks
+Add a CI job that diffs the newly generated SDK vs. the repo version; if diff exists and you're a monorepo:
+
+
+Auto-commit the regenerated files back to the PR that changed the API.
+
+
+Or fail the build with a message: "Run npx orval and commit regenerated SDK."
+
+
+Versioning & release notes
+semantic-release reads commit messages (feat:, fix:) and:
+
+
+bumps version,
+
+
+publishes package,
+
+
+updates changelog,
+
+
+creates GitHub Release.
+
+
+Add a short Human-readable API change log generated from diff in openapi.yaml so FE knows what changed (can be LLM-assisted in the same PR bot).
+
+
+Security & env
+Auth: If endpoints need auth, document security schemes in OpenAPI (e.g., cookie auth or bearer) so the generator wires headers.
+
+
+Internal URLs: Provide a BASE_URL env per environment; the SDK should read it at runtime.
+
+
+
+Rollout order (quick wins)
+Today: Enable DRF Spectacular and export openapi.yaml in CI.
+
+
+This week: Add Orval, generate SDK locally, adopt in 1–2 FE modules.
+
+
+Next: Add the SDK CI workflow to auto-publish on main merges.
+
+
+Then: Add the AI PR bot to suggest tests + doc updates; turn on Codecov gate (start at 70–75%, ratchet up).
+
+
+Optional: Add LLM step to produce API change notes from openapi.yaml diff and post on the PR.
+
+
+If you want, I can draft:
+the generate_suggestions.py scaffold (Python) with a clean prompt strategy, and
+
+
+a packages/sdk starter (package.json, tsconfig, index.ts) wired for Orval.
