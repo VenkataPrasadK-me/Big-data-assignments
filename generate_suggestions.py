@@ -1,12 +1,36 @@
-# generate_suggestions.py
+import os
+import requests
+
+# Load Perplexity API Key from environment variable (set via GitHub Secrets!)
+api_key = "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"
+
 with open("pr.diff", "r") as f:
     diff = f.read()
 
-# For now, just print summary for test
-print("### AI Suggestions for PR ###")
-print("This PR introduces the following changes:\n")
-print(diff[:1000]) # Only show first 1000 characters for brevity
+prompt = f"""
+Given this Python PR diff, generate suggested unit tests and doc explanations:
+{diff[:3000]}
+"""
 
-# TODO: Integrate Perplexity/OpenAI here
+response = requests.post(
+    "https://api.perplexity.ai/v1/chat/completions",
+    headers={
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    },
+    json={
+        "model": "llama-3-sonar-large-32k-online",  # Optionally change model name if needed
+        "messages": [{
+            "role": "user",
+            "content": prompt
+        }],
+        "max_tokens": 800
+    },
+    timeout=60
+)
+
+result = response.json()
+ai_text = result.get("choices", [{}])[0].get("message", {}).get("content", "No result!")
+
 with open("suggestions.txt", "w") as sf:
-    sf.write("PR Diff Summary:\n" + diff[:1000])
+    sf.write(ai_text)
