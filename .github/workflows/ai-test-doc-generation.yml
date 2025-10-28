@@ -27,6 +27,16 @@ jobs:
     - name: Run Backend Tests and Coverage
       run: pytest --cov=. --maxfail=1 --disable-warnings > pytest-report.txt
 
+    - name: Generate AI Suggestions
+      run: python generate_suggestions.py
+      
+    - name: Post PR Suggestion Comment
+      uses: marocchino/sticky-pull-request-comment@v2
+      with:
+        header: "🤖 AI Suggestions"
+        message: |
+          $(cat suggestions.txt)
+
     # Only include if you use Django + DRF Spectacular
     # - name: Export OpenAPI Spec
     #   run: python manage.py spectacular --file openapi.yaml
