@@ -1,0 +1,6 @@
+Django
+djangorestframework
+drf-spectacular
+pytest
+pytest-cov
+requests
