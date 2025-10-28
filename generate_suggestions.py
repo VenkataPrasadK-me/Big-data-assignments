@@ -2,7 +2,7 @@ import os
 import requests
 
 # Load Perplexity API Key from environment variable (set via GitHub Secrets!)
-api_key = api_key = os.getenv("PERPLEXITY_API_KEY")
+api_key = os.getenv("PERPLEXITY_API_KEY")
 
 with open("pr.diff", "r") as f:
     diff = f.read()
